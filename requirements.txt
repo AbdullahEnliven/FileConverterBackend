@@ -17,4 +17,3 @@ PyMuPDF==1.23.8
 reportlab==4.0.7
 Werkzeug==3.0.1
 python-magic==0.4.27
-vtracer==0.6.11
