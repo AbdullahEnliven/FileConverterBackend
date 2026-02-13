@@ -15,7 +15,7 @@ def remove_background(input_path, output_path, add_background_color=None):
     Args:
         input_path: Path to input image
         output_path: Path to save output image
-        add_background_color: Optional tuple (R, G, B) for solid background
+        add_background_color: Optional string "R,G,B" or tuple (R, G, B) for solid background
         
     Returns:
         dict: Result information
@@ -31,15 +31,23 @@ def remove_background(input_path, output_path, add_background_color=None):
         # Convert to PIL Image
         img = Image.open(BytesIO(output_data))
 
+        # Parse background color if it's a string
+        if add_background_color:
+            if isinstance(add_background_color, str):
+                # Parse "R,G,B" format from frontend
+                rgb_values = tuple(int(x.strip()) for x in add_background_color.split(','))
+                add_background_color = rgb_values
+
         # Add solid background if requested
         if add_background_color:
             background = Image.new('RGB', img.size, add_background_color)
             background.paste(img, (0, 0), img)  # Using transparency
             img = background
-        
-        # Save output in the same format as the input to maintain quality
-        img_format = img.format if img.format else 'PNG'  # Default to PNG if format is unknown
-        img.save(output_path, format=img_format, quality=95)  # Set quality to 95 for lossy formats like JPEG
+            # Save as PNG with background
+            img.save(output_path, format='PNG', quality=95)
+        else:
+            # Save as PNG with transparency
+            img.save(output_path, format='PNG', quality=95)
         
         # Get file sizes
         input_size = os.path.getsize(input_path)
