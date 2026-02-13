@@ -6,8 +6,7 @@ import shutil
 
 def image_to_svg(input_path, output_path, num_colors=8):
     """
-    Convert raster image to colorful SVG using vtracer or imagetracerpy.
-    Falls back to optimized potrace method if those aren't available.
+    Convert raster image to colorful SVG using vtracer or potrace.
     
     Args:
         input_path: Path to input raster image
@@ -15,7 +14,7 @@ def image_to_svg(input_path, output_path, num_colors=8):
         num_colors: Number of colors (2-16, default 8)
         
     Returns:
-        dict: Result information
+        dict: Result information with success status, file sizes, method used
     """
     try:
         # Method 1: Try using vtracer (BEST quality for color SVGs)
@@ -24,6 +23,8 @@ def image_to_svg(input_path, output_path, num_colors=8):
             
             # Open and resize if too large (for performance)
             img = Image.open(input_path)
+            original_size = os.path.getsize(input_path)
+            
             max_size = 1024
             if max(img.size) > max_size:
                 img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
@@ -34,7 +35,7 @@ def image_to_svg(input_path, output_path, num_colors=8):
                 img.save(tmp_path, 'PNG')
             
             try:
-                # Convert with vtracer
+                # Convert with vtracer - FULL COLOR support
                 vtracer.convert_image_to_svg_py(
                     tmp_path,
                     output_path,
@@ -51,71 +52,28 @@ def image_to_svg(input_path, output_path, num_colors=8):
                 )
                 
                 if os.path.exists(output_path):
+                    output_size = os.path.getsize(output_path)
                     return {
                         'success': True,
-                        'input_size': os.path.getsize(input_path),
-                        'output_size': os.path.getsize(output_path),
+                        'input_size': original_size,
+                        'output_size': output_size,
                         'output_path': output_path,
-                        'method': 'vtracer'
+                        'method': 'vtracer',
+                        'colors_traced': num_colors
                     }
             finally:
                 if os.path.exists(tmp_path):
                     os.remove(tmp_path)
                     
         except ImportError:
+            pass  # vtracer not available, try potrace
+        except Exception as e:
+            print(f"vtracer failed: {e}")
             pass
         
-        # Method 2: Try imagetracerpy (Good alternative)
-        try:
-            import imagetracerpy
-            
-            img = Image.open(input_path)
-            max_size = 800
-            if max(img.size) > max_size:
-                img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-            
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                tmp_path = tmp.name
-                img.save(tmp_path, 'PNG')
-            
-            try:
-                # Use imagetracer with optimized settings
-                svg_string = imagetracerpy.imagetracer(
-                    tmp_path,
-                    {
-                        'ltres': 0.1,  # Line threshold
-                        'qtres': 1,    # Quad threshold  
-                        'pathomit': 8, # Path omit
-                        'numberofcolors': num_colors,
-                        'mincolorratio': 0.02,
-                        'colorquantcycles': 3,
-                        'scale': 1,
-                        'strokewidth': 0,
-                        'linefilter': True,
-                        'desc': False,
-                        'viewbox': True
-                    }
-                )
-                
-                with open(output_path, 'w') as f:
-                    f.write(svg_string)
-                
-                return {
-                    'success': True,
-                    'input_size': os.path.getsize(input_path),
-                    'output_size': os.path.getsize(output_path),
-                    'output_path': output_path,
-                    'method': 'imagetracer'
-                }
-            finally:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-                    
-        except ImportError:
-            pass
-        
-        # Method 3: Optimized potrace with better preprocessing
+        # Method 2: Fallback to potrace (basic, works but lower quality)
         img = Image.open(input_path)
+        original_size = os.path.getsize(input_path)
         original_width, original_height = img.size
         
         # Resize for better results
@@ -127,11 +85,17 @@ def image_to_svg(input_path, output_path, num_colors=8):
         
         # Quantize colors
         img = img.convert("RGB")
-        img = img.convert("P", palette=Image.ADAPTIVE, colors=num_colors)
+        img = img.convert("P", palette=Image.Resampling.ADAPTIVE, colors=num_colors)
         img = img.convert("RGB")
         
         # Get dominant colors (skip near-white colors)
         colors = img.getcolors(maxcolors=num_colors * 2)
+        if not colors:
+            return {
+                'success': False,
+                'error': 'Could not extract colors from image'
+            }
+        
         colors = sorted(colors, key=lambda x: x[0], reverse=True)
         
         # Filter out background-like colors
@@ -149,7 +113,7 @@ def image_to_svg(input_path, output_path, num_colors=8):
         
         try:
             for idx, color in enumerate(filtered_colors):
-                # Create mask with some tolerance for similar pixels
+                # Create mask with some tolerance
                 mask = Image.new('L', img.size, 0)
                 pixels = img.load()
                 mask_pixels = mask.load()
@@ -162,9 +126,12 @@ def image_to_svg(input_path, output_path, num_colors=8):
                         if diff < 30:  # Tolerance
                             mask_pixels[x, y] = 255
                 
-                # Apply morphological operations to reduce noise
-                from PIL import ImageFilter
-                mask = mask.filter(ImageFilter.MedianFilter(3))
+                # Apply median filter to reduce noise
+                try:
+                    from PIL import ImageFilter
+                    mask = mask.filter(ImageFilter.MedianFilter(3))
+                except:
+                    pass
                 
                 mask_path = os.path.join(temp_dir, f'mask_{idx}.bmp')
                 mask.save(mask_path, 'BMP')
@@ -198,7 +165,7 @@ def image_to_svg(input_path, output_path, num_colors=8):
             if not svg_layers:
                 return {
                     'success': False,
-                    'error': 'No vector paths generated. Try installing vtracer: pip install vtracer --break-system-packages'
+                    'error': 'No vector paths generated'
                 }
             
             # Build combined SVG with proper scaling
@@ -226,14 +193,16 @@ def image_to_svg(input_path, output_path, num_colors=8):
             with open(output_path, 'w') as f:
                 f.write(svg_content)
             
+            output_size = os.path.getsize(output_path)
+            
             return {
                 'success': True,
-                'input_size': os.path.getsize(input_path),
-                'output_size': os.path.getsize(output_path),
+                'input_size': original_size,
+                'output_size': output_size,
                 'output_path': output_path,
                 'method': 'potrace',
                 'colors_traced': len(svg_layers),
-                'note': 'For better quality, install vtracer: pip install vtracer --break-system-packages'
+                'note': 'Using potrace. For better quality, vtracer is recommended but requires Rust compiler.'
             }
             
         finally:
