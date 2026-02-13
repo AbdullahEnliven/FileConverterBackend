@@ -85,7 +85,7 @@ def image_to_svg(input_path, output_path, num_colors=8):
         
         # Quantize colors
         img = img.convert("RGB")
-        img = img.convert("P", palette=Image.Resampling.ADAPTIVE, colors=num_colors)
+        img = img.convert("P", palette=Image.ADAPTIVE, colors=num_colors)
         img = img.convert("RGB")
         
         # Get dominant colors (skip near-white colors)
@@ -214,3 +214,4 @@ def image_to_svg(input_path, output_path, num_colors=8):
             'success': False,
             'error': f'Conversion error: {str(e)}'
         }
+
