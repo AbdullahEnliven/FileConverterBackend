@@ -1,15 +1,14 @@
 FROM python:3.11-slim
 
-# Install system dependencies including potrace, Rust (for vtracer), and build tools
-RUN apt-get update && apt-get install -y \
+# Install system dependencies (WITHOUT Rust - saves 1GB+)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
-    fonts-dejavu-extra \
     fonts-liberation \
     fontconfig \
-    libreoffice \
-    libreoffice-writer \
-    libreoffice-calc \
-    libreoffice-impress \
+    libreoffice-core-nogui \
+    libreoffice-writer-nogui \
+    libreoffice-calc-nogui \
+    libreoffice-impress-nogui \
     ffmpeg \
     ghostscript \
     libsm6 \
@@ -17,20 +16,18 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     potrace \
-    curl \
-    build-essential \
-    pkg-config \
- && rm -rf /var/lib/apt/lists/*
-
-# Install Rust (required for vtracer compilation)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /tmp/* \
+ && rm -rf /usr/share/doc/* \
+ && rm -rf /usr/share/man/*
 
 WORKDIR /app
 
 # Copy requirements and install Python packages
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+ && rm -rf /root/.cache
 
 # Copy application code
 COPY . .
